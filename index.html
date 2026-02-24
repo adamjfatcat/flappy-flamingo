@@ -536,8 +536,9 @@ function handleInput() {
     // Reset speed to base values (speed ramp starts from zero each game)
     PIPE_SPEED = BASE_PIPE_SPEED;
     GRAVITY = BASE_GRAVITY;
-    // Spawn the first pipe ahead — further on mobile so you have time to react
-    createPipe(IS_MOBILE ? canvas.width * 0.6 : canvas.width * 0.3);
+    // Spawn the first pipe ahead — off the right edge on mobile so you have
+    // plenty of time to get control before the first obstacle arrives
+    createPipe(IS_MOBILE ? canvas.width + 100 : canvas.width * 0.3);
     flap();
   } else if (gameState === 'playing') {
     // During gameplay, input makes the flamingo flap upward
@@ -629,7 +630,13 @@ function createPipe(startX) {
     newCenter = Math.max(minY + gapHalf, Math.min(maxY + gapHalf, newCenter));
     var gapTop = newCenter - gapHalf;
   } else {
-    var gapTop = minY + Math.random() * (maxY - minY);
+    // First pipe: center the gap near the bird's starting position (middle of screen)
+    // so the player can always reach it. Add a small random offset for variety.
+    let centerY = canvas.height / 2;
+    let nudge = (Math.random() - 0.5) * 60; // +/- 30px from center
+    let gapHalf = PIPE_GAP / 2;
+    let clampedCenter = Math.max(minY + gapHalf, Math.min(maxY + gapHalf, centerY + nudge));
+    var gapTop = clampedCenter - gapHalf;
   }
 
   let pipeX = startX !== undefined ? startX : canvas.width;
@@ -868,8 +875,9 @@ function resetGame() {
   PIPE_SPEED = BASE_PIPE_SPEED;
   GRAVITY = BASE_GRAVITY;
   resetGatorTimer();           // Set up the first alligator spawn timer
-  // Spawn the first pipe ahead — further on mobile so you have time to react
-  createPipe(IS_MOBILE ? canvas.width * 0.6 : canvas.width * 0.3);
+  // Spawn the first pipe ahead — off the right edge on mobile so you have
+  // plenty of time to get control before the first obstacle arrives
+  createPipe(IS_MOBILE ? canvas.width + 100 : canvas.width * 0.3);
   startTime = Date.now();      // Reset the timer
   flightTime = 0;
   frameCount = 0;
