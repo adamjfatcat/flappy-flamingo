@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Flappy Flamingo</title>
   <style>
     /* Full screen game — no margins, no scrollbars */
@@ -19,6 +19,7 @@
       display: block;
       width: 100vw;
       height: 100vh;
+      touch-action: none; /* Prevent scrolling/zooming when tapping the game */
     }
 
     /* ============================================================
@@ -502,6 +503,14 @@ function checkShrimpCollision(shrimp) {
 
 // When the player clicks the canvas or presses space, flap!
 canvas.addEventListener('click', handleInput);
+
+// Mobile support: listen for screen taps (touchstart fires immediately,
+// unlike click which has a ~300ms delay on mobile browsers)
+canvas.addEventListener('touchstart', function(e) {
+  e.preventDefault(); // Stop the browser from scrolling or zooming
+  handleInput();
+}, { passive: false }); // passive:false lets us call preventDefault
+
 document.addEventListener('keydown', function(e) {
   // Spacebar key code is 32, or the key is ' '
   if (e.code === 'Space' || e.key === ' ') {
@@ -1268,7 +1277,7 @@ function drawStartScreen() {
   let bounce = Math.sin(frameCount * 0.05) * 8;
   ctx.fillStyle = 'white';
   ctx.font = '24px Arial';
-  ctx.fillText('Click or press Space to start!', cx, cy + 130 + bounce);
+  ctx.fillText('Tap, click, or press Space to start!', cx, cy + 130 + bounce);
 
   ctx.font = '16px Arial';
   ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
@@ -1372,7 +1381,7 @@ function drawGameOver() {
   ctx.fillStyle = 'white';
   ctx.font = '22px Arial';
   let restartY = cy + 45 + Math.max(board.length, 1) * 32 + 25 + lbOffset;
-  ctx.fillText('Click or press Space to retry', cx, restartY);
+  ctx.fillText('Tap, click, or press Space to retry', cx, restartY);
 }
 
 // ============================================================
