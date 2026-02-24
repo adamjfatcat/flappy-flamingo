@@ -170,7 +170,7 @@ const MILESTONES = [10, 25, 50, 75, 100];
 
 // The flamingo (our player)
 let bird = {
-  x: 120,        // Horizontal position (stays fixed)
+  x: IS_MOBILE ? 60 : 120,  // Closer to left edge on mobile for more reaction time
   y: 300,        // Vertical position (changes with flapping/gravity)
   width: 44,     // Size for collision detection
   height: 34,
@@ -844,6 +844,7 @@ function checkCollision() {
 // ============================================================
 
 function resetGame() {
+  bird.x = IS_MOBILE ? 60 : 120; // Reset horizontal position
   bird.y = canvas.height / 2; // Start in the vertical center of the screen
   bird.velocity = 0;
   bird.rotation = 0;
@@ -867,8 +868,8 @@ function resetGame() {
   PIPE_SPEED = BASE_PIPE_SPEED;
   GRAVITY = BASE_GRAVITY;
   resetGatorTimer();           // Set up the first alligator spawn timer
-  // Spawn the first pipe just ahead so you don't wait long after restarting
-  createPipe(canvas.width * 0.3);
+  // Spawn the first pipe ahead — further on mobile so you have time to react
+  createPipe(IS_MOBILE ? canvas.width * 0.6 : canvas.width * 0.3);
   startTime = Date.now();      // Reset the timer
   flightTime = 0;
   frameCount = 0;
