@@ -132,18 +132,18 @@ window.addEventListener('resize', resizeCanvas);
 const IS_MOBILE = window.innerWidth < 768;
 
 // These two use "let" because they increase over time (speed ramp)
-let GRAVITY = IS_MOBILE ? 0.3 : 0.22;          // Moderate gravity on mobile
-let PIPE_SPEED = IS_MOBILE ? 3.0 : 2.2;        // Faster pipes on mobile
+let GRAVITY = IS_MOBILE ? 0.3 : 0.16;          // Floatier on desktop for easier control
+let PIPE_SPEED = IS_MOBILE ? 3.0 : 1.8;        // Slower pipes on desktop
 
 // Base values — the starting speed before the ramp kicks in
-const BASE_GRAVITY = IS_MOBILE ? 0.3 : 0.22;
-const BASE_PIPE_SPEED = IS_MOBILE ? 3.0 : 2.2;
-const SPEED_RAMP_RATE = IS_MOBILE ? 0.03 : 0.015;     // Ramps up quicker on mobile
-const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.0015 : 0.0008;
+const BASE_GRAVITY = IS_MOBILE ? 0.3 : 0.16;
+const BASE_PIPE_SPEED = IS_MOBILE ? 3.0 : 1.8;
+const SPEED_RAMP_RATE = IS_MOBILE ? 0.03 : 0.012;     // Gentler ramp on desktop
+const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.0015 : 0.0006;
 
-const FLAP_STRENGTH = IS_MOBILE ? -5 : -5;     // Same flap height on mobile — shorter hops with heavier gravity
-const PIPE_WIDTH = IS_MOBILE ? 55 : 70;         // Thinner pipes on mobile
-const PIPE_GAP = IS_MOBILE ? 160 : 190;         // Narrower gaps on mobile (harder!)
+const FLAP_STRENGTH = IS_MOBILE ? -5 : -4.2;   // Gentler flap on desktop to match lighter gravity
+const PIPE_WIDTH = IS_MOBILE ? 55 : 60;         // Slightly thinner pipes on desktop
+const PIPE_GAP = IS_MOBILE ? 160 : 210;         // Wider gaps on desktop (more forgiving)
 const PIPE_SPACING = IS_MOBILE ? 280 : 250;     // Slightly more space between pipes
 
 // Alligator settings
