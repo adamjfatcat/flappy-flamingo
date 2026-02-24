@@ -130,19 +130,19 @@ window.addEventListener('resize', resizeCanvas);
 const IS_MOBILE = window.innerWidth < 768;
 
 // These two use "let" because they increase over time (speed ramp)
-let GRAVITY = IS_MOBILE ? 0.54 : 0.22;         // 3x gravity on mobile
-let PIPE_SPEED = IS_MOBILE ? 5.4 : 2.2;        // 3x pipe speed on mobile
+let GRAVITY = IS_MOBILE ? 0.3 : 0.22;          // Moderate gravity on mobile
+let PIPE_SPEED = IS_MOBILE ? 3.0 : 2.2;        // Faster pipes on mobile
 
 // Base values — the starting speed before the ramp kicks in
-const BASE_GRAVITY = IS_MOBILE ? 0.54 : 0.22;
-const BASE_PIPE_SPEED = IS_MOBILE ? 5.4 : 2.2;
-const SPEED_RAMP_RATE = IS_MOBILE ? 0.06 : 0.015;     // 3x ramp rate on mobile
-const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.003 : 0.0008;
+const BASE_GRAVITY = IS_MOBILE ? 0.3 : 0.22;
+const BASE_PIPE_SPEED = IS_MOBILE ? 3.0 : 2.2;
+const SPEED_RAMP_RATE = IS_MOBILE ? 0.03 : 0.015;     // Ramps up quicker on mobile
+const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.0015 : 0.0008;
 
-const FLAP_STRENGTH = IS_MOBILE ? -13.5 : -5;  // 3x flap strength to match 3x gravity
+const FLAP_STRENGTH = IS_MOBILE ? -7 : -5;     // Stronger flap to match heavier gravity
 const PIPE_WIDTH = IS_MOBILE ? 55 : 70;         // Thinner pipes on mobile
-const PIPE_GAP = IS_MOBILE ? 220 : 190;         // Bigger gap on mobile
-const PIPE_SPACING = IS_MOBILE ? 300 : 250;     // More space between pipes on mobile
+const PIPE_GAP = IS_MOBILE ? 160 : 190;         // Narrower gaps on mobile (harder!)
+const PIPE_SPACING = IS_MOBILE ? 280 : 250;     // Slightly more space between pipes
 
 // Alligator settings
 const GATOR_WIDTH = 80;     // How wide each alligator is
