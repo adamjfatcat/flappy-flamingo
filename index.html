@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flappy Flamingo</title>
+  <style>
+    /* Full screen game — no margins, no scrollbars */
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      cursor: pointer;
+    }
+
+    /* Canvas fills the entire browser window */
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* ============================================================
+       NAME ENTRY OVERLAY — shown after game over so player can
+       type their name for the leaderboard
+       ============================================================ */
+    #nameOverlay {
+      display: none;              /* Hidden by default */
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 105, 180, 0.95); /* Pink to match the theme */
+      border: 3px solid white;
+      border-radius: 16px;
+      padding: 30px 40px;
+      text-align: center;
+      z-index: 10;                /* Sit on top of the canvas */
+      font-family: Arial, sans-serif;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    #nameOverlay h2 {
+      color: white;
+      margin: 0 0 8px 0;
+      font-size: 28px;
+    }
+
+    #nameOverlay .time-display {
+      color: #FFD700;             /* Gold color for the time */
+      font-size: 22px;
+      margin-bottom: 16px;
+    }
+
+    #nameOverlay input {
+      font-size: 20px;
+      padding: 8px 14px;
+      border: 2px solid white;
+      border-radius: 8px;
+      outline: none;
+      width: 180px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    #nameOverlay button {
+      font-size: 20px;
+      padding: 8px 20px;
+      margin-left: 8px;
+      border: 2px solid white;
+      border-radius: 8px;
+      background: #FF1493;        /* Deep pink button */
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #nameOverlay button:hover {
+      background: #C71585;        /* Darker on hover */
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<!-- Name entry overlay — appears after game over -->
+<div id="nameOverlay">
+  <h2>Enter Your Name</h2>
+  <div class="time-display" id="overlayTime"></div>
+  <div>
+    <input type="text" id="nameInput" maxlength="12" placeholder="Your name">
+    <button id="nameSubmit">Submit</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// SETUP - Get the canvas ready for drawing
+// ============================================================
+
+// The canvas is our "screen" where we draw everything
+const canvas = document.getElementById('gameCanvas');
+// The "context" (ctx) is the tool we use to actually draw shapes and text
+const ctx = canvas.getContext('2d');
+
+// Grab references to the name entry overlay elements
+const nameOverlay = document.getElementById('nameOverlay');
+const nameInput = document.getElementById('nameInput');
+const nameSubmit = document.getElementById('nameSubmit');
+const overlayTime = document.getElementById('overlayTime');
+
+// Make the canvas fill the entire browser window
+// We call this on load and whenever the window is resized
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ============================================================
+// GAME SETTINGS - Easy to tweak these numbers to change difficulty
+// ============================================================
+
+// These two use "let" because they increase over time (speed ramp)
+let GRAVITY = 0.22;         // How fast the flamingo falls (lower = floatier, easier)
+let PIPE_SPEED = 2.2;       // How fast pipes move left (lower = easier)
+
+// Base values — the starting speed before the ramp kicks in
+const BASE_GRAVITY = 0.22;
+const BASE_PIPE_SPEED = 2.2;
+const SPEED_RAMP_RATE = 0.015;    // How much PIPE_SPEED increases per second survived
+const GRAVITY_RAMP_RATE = 0.0008; // How much GRAVITY increases per second survived
+
+const FLAP_STRENGTH = -5;   // How high a flap goes (negative = upward)
+const PIPE_WIDTH = 70;      // How wide each pipe/obstacle is
+const PIPE_GAP = 190;       // The vertical gap between top and bottom pipes (bigger = easier)
+const PIPE_SPACING = 250;   // Horizontal distance between pipe pairs (bigger = more time)
+
+// Alligator settings
+const GATOR_WIDTH = 80;     // How wide each alligator is
+const GATOR_HEIGHT = 40;    // How tall the alligator body is
+const GATOR_MIN_INTERVAL = 70;  // Minimum frames between alligator spawns
+const GATOR_MAX_INTERVAL = 160; // Maximum frames between alligator spawns
+
+// Shrimp collectible settings
+const SHRIMP_SIZE = 20;       // How big the shrimp is
+const SHRIMP_CHANCE = 0.3;    // 30% chance a pipe gap contains a shrimp
+
+// Gold pipe settings
+const GOLD_PIPE_CHANCE = 0.12;  // 12% chance a pipe is golden (worth double)
+const BOBBING_PIPE_CHANCE = 0.1; // 10% chance a pipe bobs up and down
+
+// Near-miss detection
+const NEAR_MISS_THRESHOLD = 15; // Pixels from pipe edge to count as "close"
+
+// Milestone thresholds — pipe counts that trigger a "LEVEL UP!" banner
+const MILESTONES = [10, 25, 50, 75, 100];
+
+// ============================================================
+// GAME STATE - Variables that change as the game runs
+// ============================================================
+
+// The flamingo (our player)
+let bird = {
+  x: 120,        // Horizontal position (stays fixed)
+  y: 300,        // Vertical position (changes with flapping/gravity)
+  width: 44,     // Size for collision detection
+  height: 34,
+  velocity: 0,   // Current speed (positive = falling, negative = rising)
+  rotation: 0    // Tilt angle for visual flair
+};
+
+let pipes = [];              // Array of pipe obstacles
+let alligators = [];         // Array of alligator hazards
+let gatorTimer = 0;          // Countdown until next alligator spawns
+let startTime = 0;           // When the current game started (milliseconds)
+let flightTime = 0;          // How long the player has survived (seconds)
+let bestTime = 0;            // Best time this session
+let gameState = 'start';     // Can be: 'start', 'playing', 'dying', 'entername', or 'gameover'
+let frameCount = 0;          // Counts frames for animation timing
+
+// Pipe score — counts how many pipe gaps the flamingo has flown through
+let pipeScore = 0;
+
+// Particles — small visual effects that float and fade (feathers, death burst)
+let particles = [];
+
+// Score popups — floating "+1" text that drifts up and fades out
+let scorePopups = [];
+
+// Shrimp collectibles — spawn in pipe gaps for bonus points
+let collectibles = [];
+
+// Screen shake — triggered on death for impact feel
+let shakeTimer = 0;       // How many frames of shake remain
+let shakeIntensity = 0;   // How far the screen shifts (in pixels)
+
+// Death animation — bird tumbles and falls before name entry appears
+let deathTimer = 0;        // Counts down during the 'dying' state
+
+// New best flag — set to true when the player beats their best time
+let isNewBest = false;
+
+// Combo system — tracks consecutive pipes passed
+let combo = 0;            // Current streak of pipes passed
+let comboDisplay = 0;     // Displayed combo (persists briefly after reset for visual)
+
+// Screen flash — brief color overlay on events
+let flashColor = '';      // e.g. 'rgba(255,255,255,0.3)' for white flash
+let flashTimer = 0;       // Frames remaining for the flash
+
+// Scrolling ground offset — makes the grass scroll left for motion feel
+let groundOffset = 0;
+
+// Motion trail — stores recent bird positions for afterimage effect
+let birdTrail = [];
+
+// Milestone banner
+let milestoneText = '';    // e.g. "LEVEL UP!"
+let milestoneTimer = 0;   // Frames remaining for the banner
+let lastMilestone = 0;    // Last milestone reached (to avoid re-triggering)
+
+
+// ============================================================
+// LEADERBOARD - Saved to localStorage so it persists across sessions
+// ============================================================
+
+// Load leaderboard from localStorage (or start with an empty array)
+function loadLeaderboard() {
+  try {
+    let data = localStorage.getItem('flamingoLeaderboard');
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    // If something goes wrong reading storage, just start fresh
+    return [];
+  }
+}
+
+// Save a new entry to the leaderboard, keep only the top 5
+function saveToLeaderboard(name, time) {
+  let board = loadLeaderboard();
+  board.push({ name: name, time: time });
+  // Sort by time descending (longest survival = best)
+  board.sort(function(a, b) { return b.time - a.time; });
+  // Keep only the top 5 entries
+  board = board.slice(0, 5);
+  localStorage.setItem('flamingoLeaderboard', JSON.stringify(board));
+  return board;
+}
+
+// ============================================================
+// CLOUDS - Decorative background clouds for a nice sky
+// ============================================================
+
+// Create some random clouds for the background.
+// Cloud speed is based on size — smaller clouds move faster (closer to the "camera"),
+// bigger clouds move slower (farther away). This creates a parallax depth effect.
+let clouds = [];
+for (let i = 0; i < 8; i++) {
+  let size = 40 + Math.random() * 60;
+  clouds.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * (canvas.height / 2),  // Only in the top half
+    size: size,
+    // Parallax: small clouds (40) move at ~0.6, big clouds (100) move at ~0.2
+    speed: 0.8 - (size / 100) * 0.6
+  });
+}
+
+// ============================================================
+// SOUND EFFECTS - Simple tones using the Web Audio API
+// ============================================================
+
+// The AudioContext generates sounds entirely in code — no audio files needed.
+// We create it on the first user interaction (browsers require this).
+let audioCtx = null;
+
+// Initialize the audio context (called once on first click/keypress)
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+// Play a short tone. "freq" is the pitch, "duration" is how long in seconds,
+// "type" is the wave shape ('sine' = smooth, 'square' = buzzy, 'triangle' = soft)
+function playTone(freq, duration, type, volume) {
+  if (!audioCtx) return;
+  let osc = audioCtx.createOscillator();    // The thing that makes sound
+  let gain = audioCtx.createGain();          // Controls volume
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  // Fade out at the end so it doesn't "click"
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+// Short high blip when the flamingo flaps
+function playFlapSound() {
+  playTone(480, 0.08, 'sine', 0.1);
+}
+
+// Quick ascending "ding" when passing through a pipe gap
+function playScoreSound() {
+  playTone(660, 0.1, 'triangle', 0.12);
+  // Second slightly higher note after a tiny delay for a pleasant "ding"
+  setTimeout(function() { playTone(880, 0.1, 'triangle', 0.1); }, 50);
+}
+
+// Cheerful double-blip when collecting a shrimp
+function playShrimpSound() {
+  playTone(700, 0.08, 'sine', 0.15);
+  setTimeout(function() { playTone(1000, 0.12, 'sine', 0.12); }, 80);
+}
+
+// Low buzz when the flamingo dies
+function playDeathSound() {
+  playTone(150, 0.3, 'square', 0.15);
+  playTone(120, 0.4, 'sawtooth', 0.1);
+}
+
+// Fanfare sound for milestones
+function playMilestoneSound() {
+  playTone(523, 0.1, 'square', 0.12);
+  setTimeout(function() { playTone(659, 0.1, 'square', 0.12); }, 100);
+  setTimeout(function() { playTone(784, 0.15, 'square', 0.12); }, 200);
+  setTimeout(function() { playTone(1047, 0.25, 'square', 0.15); }, 300);
+}
+
+// Near-miss swoosh sound
+function playNearMissSound() {
+  playTone(400, 0.06, 'sawtooth', 0.08);
+  setTimeout(function() { playTone(600, 0.08, 'triangle', 0.06); }, 30);
+}
+
+
+// ============================================================
+// PARTICLE SYSTEM - Small visual effects that float and fade
+// ============================================================
+
+// Create a burst of particles at a given position.
+// "count" = how many, "color" = fill color, "speed" = how fast they fly out
+function spawnParticles(x, y, count, color, speed) {
+  for (let i = 0; i < count; i++) {
+    // Random direction and speed for each particle
+    let angle = Math.random() * Math.PI * 2;
+    let spd = speed * (0.5 + Math.random());
+    particles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * spd,   // Horizontal velocity
+      vy: Math.sin(angle) * spd,   // Vertical velocity
+      life: 1.0,                    // Starts at 1, fades to 0
+      decay: 0.02 + Math.random() * 0.02, // How fast it fades
+      color: color,
+      size: 2 + Math.random() * 4  // Random size
+    });
+  }
+}
+
+// Update all particles (move them, fade them, remove dead ones)
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;   // Tiny bit of gravity so they arc downward
+    p.life -= p.decay;
+    if (p.life <= 0) {
+      particles.splice(i, 1); // Remove dead particles
+    }
+  }
+}
+
+// Draw all active particles
+function drawParticles() {
+  for (let p of particles) {
+    ctx.globalAlpha = p.life;  // Fade out as life decreases
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0; // Reset transparency
+}
+
+// ============================================================
+// SCORE POPUPS - Floating "+1" text that drifts up and fades
+// ============================================================
+
+// Create a popup at a given position with some text
+function spawnPopup(x, y, text, color) {
+  scorePopups.push({
+    x: x,
+    y: y,
+    text: text,
+    color: color || 'white',
+    life: 1.0,     // Fades from 1 to 0
+    vy: -1.5       // Drifts upward
+  });
+}
+
+// Update all popups (move them up, fade them, remove expired ones)
+function updatePopups() {
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    let p = scorePopups[i];
+    p.y += p.vy;
+    p.life -= 0.02;
+    if (p.life <= 0) {
+      scorePopups.splice(i, 1);
+    }
+  }
+}
+
+// Draw all active popups
+function drawPopups() {
+  for (let p of scorePopups) {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+// ============================================================
+// COLLECTIBLES (SHRIMP) - Bonus items that appear in pipe gaps
+// ============================================================
+
+// Maybe spawn a shrimp in the gap of a pipe that was just created.
+// Called from createPipe() with the pipe's gap position.
+function maybeSpawnShrimp(pipeX, gapTop, gapBottom) {
+  if (Math.random() < SHRIMP_CHANCE) {
+    collectibles.push({
+      x: pipeX + PIPE_WIDTH / 2,                    // Center of the pipe gap horizontally
+      y: gapTop + (gapBottom - gapTop) / 2,          // Center of the gap vertically
+      size: SHRIMP_SIZE,
+      bobOffset: Math.random() * Math.PI * 2,        // Random starting angle for bobbing
+      collected: false
+    });
+  }
+}
+
+// Draw a single shrimp collectible (a cute little shrimp shape)
+function drawShrimp(shrimp) {
+  let x = shrimp.x;
+  // Bob up and down gently
+  let y = shrimp.y + Math.sin(frameCount * 0.06 + shrimp.bobOffset) * 8;
+  let s = shrimp.size;
+
+  // Glowing ring around it so it's noticeable
+  ctx.strokeStyle = 'rgba(255, 215, 0, ' + (0.4 + Math.sin(frameCount * 0.1) * 0.3) + ')';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, s * 0.8, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Shrimp body (curved orange/pink shape)
+  ctx.fillStyle = '#FF6347'; // Tomato red/orange
+  ctx.beginPath();
+  ctx.ellipse(x, y, s * 0.5, s * 0.3, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shrimp tail
+  ctx.fillStyle = '#FF4500';
+  ctx.beginPath();
+  ctx.moveTo(x - s * 0.4, y);
+  ctx.lineTo(x - s * 0.7, y - s * 0.2);
+  ctx.lineTo(x - s * 0.7, y + s * 0.2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Tiny eye
+  ctx.fillStyle = 'black';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.3, y - s * 0.1, 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Check if the flamingo is touching a shrimp
+function checkShrimpCollision(shrimp) {
+  // Bob position for accurate hit detection
+  let sy = shrimp.y + Math.sin(frameCount * 0.06 + shrimp.bobOffset) * 8;
+  let dist = Math.sqrt(
+    Math.pow(bird.x + bird.width / 2 - shrimp.x, 2) +
+    Math.pow(bird.y + bird.height / 2 - sy, 2)
+  );
+  return dist < shrimp.size + bird.width / 3;
+}
+
+// ============================================================
+// INPUT HANDLING - Listen for clicks and key presses
+// ============================================================
+
+// When the player clicks the canvas or presses space, flap!
+canvas.addEventListener('click', handleInput);
+document.addEventListener('keydown', function(e) {
+  // Spacebar key code is 32, or the key is ' '
+  if (e.code === 'Space' || e.key === ' ') {
+    e.preventDefault(); // Stop the page from scrolling down
+    handleInput();
+  }
+});
+
+// This function decides what happens when the player gives input
+function handleInput() {
+  initAudio(); // Make sure audio is ready (browsers need a user gesture first)
+
+  if (gameState === 'start') {
+    // First input starts the game
+    gameState = 'playing';
+    startTime = Date.now();      // Record when the game started
+    flightTime = 0;
+    bird.y = canvas.height / 2;
+    // Reset speed to base values (speed ramp starts from zero each game)
+    PIPE_SPEED = BASE_PIPE_SPEED;
+    GRAVITY = BASE_GRAVITY;
+    // Spawn the first pipe just a short distance ahead so the action starts fast
+    createPipe(canvas.width * 0.3);
+    flap();
+  } else if (gameState === 'playing') {
+    // During gameplay, input makes the flamingo flap upward
+    flap();
+  } else if (gameState === 'gameover') {
+    // After viewing the leaderboard, input restarts the game
+    resetGame();
+  }
+  // Note: 'dying' and 'entername' states ignore clicks/space
+}
+
+// Make the flamingo flap (jump upward)
+function flap() {
+  bird.velocity = FLAP_STRENGTH;
+  playFlapSound();
+  // Spawn a few small feather particles behind/below the bird
+  spawnParticles(
+    bird.x + bird.width / 2,
+    bird.y + bird.height,
+    3,                    // 3 particles per flap
+    '#FFB6C1',            // Light pink (feather color)
+    1.5                   // Gentle speed
+  );
+}
+
+// ============================================================
+// NAME ENTRY - Show/hide the overlay and handle submission
+// ============================================================
+
+// Show the name entry overlay (called when player dies)
+function showNameEntry() {
+  overlayTime.textContent = 'You survived ' + flightTime.toFixed(1) + 's!';
+  nameInput.value = '';
+  nameOverlay.style.display = 'block';
+  // Focus the input so the player can start typing immediately
+  nameInput.focus();
+}
+
+// Hide the name entry overlay
+function hideNameEntry() {
+  nameOverlay.style.display = 'none';
+}
+
+// When the player clicks "Submit" or presses Enter, save their score
+function submitName() {
+  let name = nameInput.value.trim();
+  // If they didn't type anything, use a default name
+  if (name === '') {
+    name = 'Anonymous';
+  }
+  hideNameEntry();
+  saveToLeaderboard(name, flightTime);
+  // Move to the game-over screen which shows the leaderboard
+  gameState = 'gameover';
+}
+
+// Listen for the Submit button click
+nameSubmit.addEventListener('click', submitName);
+
+// Also submit when the player presses Enter in the input field
+nameInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    submitName();
+  }
+});
+
+// ============================================================
+// PIPE MANAGEMENT - Create and manage obstacles
+// ============================================================
+
+// Create a new pair of pipes (top and bottom)
+// startX is optional — if provided, the pipe spawns there instead of the right edge
+function createPipe(startX) {
+  // Random vertical position for the gap center
+  // Keep it away from the very top and bottom so it's always possible
+  let minY = 80;
+  let maxY = canvas.height - PIPE_GAP - 80;
+
+  // REACHABILITY: Constrain the new gap so it's within MAX_GAP_SHIFT pixels
+  // of the previous pipe's gap. Without this, consecutive pipes could have gaps
+  // at opposite extremes, making it physically impossible to navigate between them.
+  let MAX_GAP_SHIFT = 180; // Max vertical distance between consecutive gap centers
+  if (pipes.length > 0) {
+    let lastPipe = pipes[pipes.length - 1];
+    let lastCenter = (lastPipe.gapTop + lastPipe.gapBottom) / 2;
+    let newCenter = lastCenter - MAX_GAP_SHIFT / 2 + Math.random() * MAX_GAP_SHIFT;
+    // Clamp so the gap doesn't go off-screen
+    let gapHalf = PIPE_GAP / 2;
+    newCenter = Math.max(minY + gapHalf, Math.min(maxY + gapHalf, newCenter));
+    var gapTop = newCenter - gapHalf;
+  } else {
+    var gapTop = minY + Math.random() * (maxY - minY);
+  }
+
+  let pipeX = startX !== undefined ? startX : canvas.width;
+  let gapBottom = gapTop + PIPE_GAP;
+
+  // Decide if this is a special pipe
+  let isGold = Math.random() < GOLD_PIPE_CHANCE;
+  // Don't allow bobbing right after another bobbing pipe — the combined
+  // movement could make the transition too tight
+  let prevBobbing = pipes.length > 0 && pipes[pipes.length - 1].bobbing;
+  let isBobbing = !prevBobbing && Math.random() < BOBBING_PIPE_CHANCE;
+
+  pipes.push({
+    x: pipeX,
+    gapTop: gapTop,             // Where the gap starts (top of opening)
+    gapBottom: gapBottom,       // Where the gap ends (bottom of opening)
+    scored: false,              // Tracks if the player has passed this pipe (for scoring)
+    nearMissChecked: false,     // Tracks if we already checked for near-miss on this pipe
+    gold: isGold,               // Gold pipes are worth double points
+    bobbing: isBobbing,         // Bobbing pipes move up and down
+    bobOffset: Math.random() * Math.PI * 2  // Random starting phase for bobbing
+  });
+
+  // Maybe spawn a shrimp collectible inside this pipe's gap
+  maybeSpawnShrimp(pipeX, gapTop, gapBottom);
+}
+
+// ============================================================
+// ALLIGATOR MANAGEMENT - Create, move, draw, and collide
+// ============================================================
+
+// Set a random countdown until the next alligator spawns
+function resetGatorTimer() {
+  gatorTimer = GATOR_MIN_INTERVAL + Math.floor(Math.random() * (GATOR_MAX_INTERVAL - GATOR_MIN_INTERVAL));
+}
+
+// Create a new alligator at the right edge of the screen
+function createAlligator() {
+  alligators.push({
+    x: canvas.width,        // Start just off the right edge
+    jawAngle: 0,            // Current jaw animation angle (0 = closed, 1 = open)
+    jawOpening: true        // Whether the jaw is currently opening or closing
+  });
+}
+
+// Draw a single alligator at its position
+// Alligators sit on the ground (the green strip at the bottom)
+function drawAlligator(gator) {
+  // The ground starts at canvas.height - 60
+  let groundY = canvas.height - 60;
+  let bodyY = groundY - GATOR_HEIGHT; // Top of the alligator body
+
+  // --- BODY --- (dark green rectangle with rounded look)
+  ctx.fillStyle = '#2E7D32'; // Dark green
+  ctx.beginPath();
+  // Draw a rounded rectangle for the body
+  let bx = gator.x;
+  let by = bodyY;
+  let bw = GATOR_WIDTH;
+  let bh = GATOR_HEIGHT;
+  let radius = 8;
+  ctx.moveTo(bx + radius, by);
+  ctx.lineTo(bx + bw - radius, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + radius);
+  ctx.lineTo(bx + bw, by + bh);
+  ctx.lineTo(bx, by + bh);
+  ctx.lineTo(bx, by + radius);
+  ctx.quadraticCurveTo(bx, by, bx + radius, by);
+  ctx.fill();
+
+  // Lighter belly stripe
+  ctx.fillStyle = '#66BB6A';
+  ctx.fillRect(gator.x + 5, bodyY + GATOR_HEIGHT * 0.6, GATOR_WIDTH - 10, GATOR_HEIGHT * 0.3);
+
+  // Bumpy scales on top (little triangles along the back)
+  ctx.fillStyle = '#1B5E20';
+  for (let i = 0; i < 5; i++) {
+    let sx = gator.x + 10 + i * 14;
+    ctx.beginPath();
+    ctx.moveTo(sx, bodyY);
+    ctx.lineTo(sx + 5, bodyY - 6);
+    ctx.lineTo(sx + 10, bodyY);
+    ctx.fill();
+  }
+
+  // --- UPPER JAW --- (the snout sticking out to the left)
+  // The jaw opens and closes — jawAngle controls how far open it is
+  let jawOpen = gator.jawAngle * 12; // Max 12 pixels of opening
+
+  ctx.fillStyle = '#2E7D32';
+  // Upper jaw (moves up when opening)
+  ctx.beginPath();
+  ctx.moveTo(gator.x, bodyY + 6);
+  ctx.lineTo(gator.x - 30, bodyY + 4 - jawOpen);
+  ctx.lineTo(gator.x - 28, bodyY + 14 - jawOpen);
+  ctx.lineTo(gator.x, bodyY + 16);
+  ctx.fill();
+
+  // Lower jaw (moves down when opening)
+  ctx.fillStyle = '#388E3C';
+  ctx.beginPath();
+  ctx.moveTo(gator.x, bodyY + 20);
+  ctx.lineTo(gator.x - 28, bodyY + 22 + jawOpen);
+  ctx.lineTo(gator.x - 30, bodyY + 30 + jawOpen);
+  ctx.lineTo(gator.x, bodyY + GATOR_HEIGHT - 4);
+  ctx.fill();
+
+  // --- TEETH --- (white triangles along the jaw edges)
+  ctx.fillStyle = 'white';
+  for (let t = 0; t < 4; t++) {
+    let tx = gator.x - 6 - t * 6;
+    // Top teeth (hang down from upper jaw)
+    ctx.beginPath();
+    ctx.moveTo(tx, bodyY + 14 - jawOpen);
+    ctx.lineTo(tx + 2, bodyY + 19 - jawOpen);
+    ctx.lineTo(tx + 4, bodyY + 14 - jawOpen);
+    ctx.fill();
+    // Bottom teeth (point up from lower jaw)
+    ctx.beginPath();
+    ctx.moveTo(tx, bodyY + 22 + jawOpen);
+    ctx.lineTo(tx + 2, bodyY + 17 + jawOpen);
+    ctx.lineTo(tx + 4, bodyY + 22 + jawOpen);
+    ctx.fill();
+  }
+
+  // --- EYE --- (sits on top of the head near the front)
+  // Yellow eye with a slit pupil (like a real alligator!)
+  ctx.fillStyle = '#FFD700'; // Yellow
+  ctx.beginPath();
+  ctx.arc(gator.x + 8, bodyY + 6, 6, 0, Math.PI * 2);
+  ctx.fill();
+  // Slit pupil
+  ctx.fillStyle = 'black';
+  ctx.beginPath();
+  ctx.ellipse(gator.x + 8, bodyY + 6, 2, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- TAIL --- (a tapered shape going off to the right)
+  ctx.fillStyle = '#2E7D32';
+  ctx.beginPath();
+  ctx.moveTo(gator.x + GATOR_WIDTH, bodyY + 8);
+  ctx.lineTo(gator.x + GATOR_WIDTH + 25, bodyY + GATOR_HEIGHT / 2 - 2);
+  ctx.lineTo(gator.x + GATOR_WIDTH + 20, bodyY + GATOR_HEIGHT / 2 + 4);
+  ctx.lineTo(gator.x + GATOR_WIDTH, bodyY + GATOR_HEIGHT - 8);
+  ctx.fill();
+
+  // --- LEGS --- (stubby little legs underneath)
+  ctx.fillStyle = '#2E7D32';
+  // Front leg
+  ctx.fillRect(gator.x + 10, groundY - 4, 8, 6);
+  // Back leg
+  ctx.fillRect(gator.x + GATOR_WIDTH - 18, groundY - 4, 8, 6);
+  // Feet (little darker pads)
+  ctx.fillStyle = '#1B5E20';
+  ctx.fillRect(gator.x + 8, groundY, 12, 3);
+  ctx.fillRect(gator.x + GATOR_WIDTH - 20, groundY, 12, 3);
+}
+
+// Check if the flamingo collides with any alligator
+function checkAlligatorCollision() {
+  let groundY = canvas.height - 60;
+  let bodyY = groundY - GATOR_HEIGHT;
+
+  for (let gator of alligators) {
+    // The hitbox includes the jaws (extending 30px to the left) and the tail
+    let gatorLeft = gator.x - 30;
+    let gatorRight = gator.x + GATOR_WIDTH + 20;
+    let gatorTop = bodyY - 6; // Include the scales on top
+
+    // Simple rectangle vs rectangle collision check
+    if (bird.x + bird.width > gatorLeft &&
+        bird.x < gatorRight &&
+        bird.y + bird.height > gatorTop &&
+        bird.y < groundY) {
+      return true; // Hit an alligator!
+    }
+  }
+  return false;
+}
+
+// ============================================================
+// COLLISION DETECTION - Check if flamingo hits a pipe or the ground
+// ============================================================
+
+function checkCollision() {
+  // Check if the flamingo hit the ground or flew too high
+  if (bird.y + bird.height > canvas.height - 60 || bird.y < 0) {
+    return true; // Collision!
+  }
+
+  // Check each pipe pair
+  for (let pipe of pipes) {
+    // Is the flamingo horizontally overlapping with this pipe?
+    if (bird.x + bird.width > pipe.x && bird.x < pipe.x + PIPE_WIDTH) {
+      // Is the flamingo above the gap (hitting top pipe) or below it (hitting bottom pipe)?
+      if (bird.y < pipe.gapTop || bird.y + bird.height > pipe.gapBottom) {
+        return true; // Collision!
+      }
+    }
+  }
+
+  // Also check alligators
+  if (checkAlligatorCollision()) {
+    return true;
+  }
+
+  return false; // No collision
+}
+
+// ============================================================
+// RESET - Start a fresh game
+// ============================================================
+
+function resetGame() {
+  bird.y = canvas.height / 2; // Start in the vertical center of the screen
+  bird.velocity = 0;
+  bird.rotation = 0;
+  pipes = [];
+  alligators = [];             // Clear all alligators
+  collectibles = [];           // Clear any leftover shrimp
+  particles = [];              // Clear particles
+  scorePopups = [];            // Clear popups
+  birdTrail = [];              // Clear motion trail
+  pipeScore = 0;               // Reset pipe counter
+  combo = 0;                   // Reset combo streak
+  comboDisplay = 0;
+  isNewBest = false;           // Reset new best flag
+  shakeTimer = 0;              // Stop any screen shake
+  flashTimer = 0;
+  deathTimer = 0;
+  milestoneTimer = 0;
+  lastMilestone = 0;
+  groundOffset = 0;
+  // Reset speed to base (before ramp)
+  PIPE_SPEED = BASE_PIPE_SPEED;
+  GRAVITY = BASE_GRAVITY;
+  resetGatorTimer();           // Set up the first alligator spawn timer
+  // Spawn the first pipe just ahead so you don't wait long after restarting
+  createPipe(canvas.width * 0.3);
+  startTime = Date.now();      // Reset the timer
+  flightTime = 0;
+  frameCount = 0;
+  gameState = 'playing';
+  flap(); // Give an initial flap so the player doesn't just drop
+}
+
+// ============================================================
+// DRAWING FUNCTIONS - Everything visual
+// ============================================================
+
+// Helper: blend two RGB colors. t=0 gives colorA, t=1 gives colorB.
+function lerpColor(rA, gA, bA, rB, gB, bB, t) {
+  t = Math.max(0, Math.min(1, t));
+  let r = Math.round(rA + (rB - rA) * t);
+  let g = Math.round(gA + (gB - gA) * t);
+  let b = Math.round(bA + (bB - bA) * t);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+// Draw the sky gradient background.
+// As the player survives longer, the sky shifts from day → sunset → night.
+function drawBackground() {
+  // How far into the day-night cycle we are (0 = day, 1 = full night)
+  // Reaches full night around 60 seconds of survival.
+  let nightProgress = Math.min(flightTime / 60, 1);
+
+  // Day colors
+  let topDay = [135, 206, 235];  // #87CEEB sky blue
+  let midDay = [255, 182, 193];  // #FFB6C1 light pink
+  let botDay = [255, 105, 180];  // #FF69B4 hot pink
+
+  // Night colors
+  let topNight = [15, 15, 60];     // Deep dark blue
+  let midNight = [40, 20, 80];     // Dark purple
+  let botNight = [20, 10, 50];     // Very dark purple
+
+  let topColor = lerpColor(topDay[0], topDay[1], topDay[2], topNight[0], topNight[1], topNight[2], nightProgress);
+  let midColor = lerpColor(midDay[0], midDay[1], midDay[2], midNight[0], midNight[1], midNight[2], nightProgress);
+  let botColor = lerpColor(botDay[0], botDay[1], botDay[2], botNight[0], botNight[1], botNight[2], nightProgress);
+
+  let gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, topColor);
+  gradient.addColorStop(0.6, midColor);
+  gradient.addColorStop(1, botColor);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw stars at night (they fade in as it gets dark)
+  if (nightProgress > 0.3) {
+    let starAlpha = (nightProgress - 0.3) / 0.7; // 0 at 30%, 1 at 100%
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + (starAlpha * 0.8) + ')';
+    // Use a fixed seed-like pattern based on position so stars don't flicker
+    for (let i = 0; i < 40; i++) {
+      let sx = ((i * 137.5) % canvas.width);
+      let sy = ((i * 97.3) % (canvas.height * 0.5));
+      let ss = 1 + (i % 3);
+      ctx.beginPath();
+      ctx.arc(sx, sy, ss, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// Draw floating clouds
+function drawClouds() {
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // Semi-transparent white
+  for (let cloud of clouds) {
+    // A cloud is just a few overlapping circles
+    ctx.beginPath();
+    ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+    ctx.arc(cloud.x + cloud.size * 0.6, cloud.y - cloud.size * 0.2, cloud.size * 0.7, 0, Math.PI * 2);
+    ctx.arc(cloud.x - cloud.size * 0.4, cloud.y - cloud.size * 0.1, cloud.size * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Draw the ground at the bottom — scrolls left to convey motion
+function drawGround() {
+  // Green grass strip
+  ctx.fillStyle = '#4CAF50';
+  ctx.fillRect(0, canvas.height - 60, canvas.width, 60);
+
+  // Lighter green stripe on top of the grass for depth
+  ctx.fillStyle = '#66BB6A';
+  ctx.fillRect(0, canvas.height - 60, canvas.width, 8);
+
+  // Little grass tufts — scroll with groundOffset for motion feel
+  ctx.fillStyle = '#388E3C';
+  // We draw from before the left edge to after the right edge so tufts wrap seamlessly
+  let startI = -(Math.floor(groundOffset) % 20);
+  for (let i = startI; i < canvas.width + 20; i += 20) {
+    ctx.beginPath();
+    ctx.moveTo(i, canvas.height - 60);
+    ctx.lineTo(i + 5, canvas.height - 72);
+    ctx.lineTo(i + 10, canvas.height - 60);
+    ctx.fill();
+  }
+}
+
+// Draw the flamingo (our hero!)
+function drawBird() {
+  ctx.save(); // Save the current drawing state
+
+  // Move the drawing origin to the bird's center so we can rotate it
+  ctx.translate(bird.x + bird.width / 2, bird.y + bird.height / 2);
+
+  // Tilt the flamingo based on its velocity
+  // During the 'dying' state, the bird spins freely (rotation is set in the game loop)
+  if (gameState !== 'dying') {
+    // Going up = tilt up, falling = tilt down
+    bird.rotation = bird.velocity * 3; // Convert speed to degrees
+    bird.rotation = Math.max(-30, Math.min(bird.rotation, 60)); // Limit the tilt
+  }
+  ctx.rotate(bird.rotation * Math.PI / 180); // Convert degrees to radians
+
+  // -- LEGS -- (drawn first so they appear behind the body)
+  ctx.strokeStyle = '#FF69B4';
+  ctx.lineWidth = 2.5;
+  // Left leg — thin line dangling down
+  ctx.beginPath();
+  ctx.moveTo(-5, bird.height / 2 - 2);
+  ctx.lineTo(-8, bird.height / 2 + 14);
+  ctx.stroke();
+  // Right leg
+  ctx.beginPath();
+  ctx.moveTo(5, bird.height / 2 - 2);
+  ctx.lineTo(2, bird.height / 2 + 14);
+  ctx.stroke();
+
+  // -- BODY -- (main pink oval)
+  ctx.fillStyle = '#FF69B4'; // Hot pink
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bird.width / 2, bird.height / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Slight highlight on top of body for a 3D look
+  ctx.fillStyle = '#FF8DC7';
+  ctx.beginPath();
+  ctx.ellipse(-2, -4, bird.width / 3, bird.height / 4, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // -- WING -- (big, visible wing that flaps!)
+  // The wing rotates up and down. When the player flaps, velocity is negative
+  // so the wing goes UP. When falling, the wing drops DOWN. This looks natural.
+  let wingAngle;
+  if (gameState === 'playing') {
+    // Map the bird's velocity to a wing angle:
+    // velocity of -6 (flapping up) => wing tilts up (-40 degrees)
+    // velocity of +5 (falling) => wing tilts down (+30 degrees)
+    wingAngle = bird.velocity * 6;
+    wingAngle = Math.max(-45, Math.min(wingAngle, 35));
+  } else {
+    // Gentle idle flapping animation on start/game-over screens
+    wingAngle = Math.sin(frameCount * 0.08) * 25;
+  }
+
+  ctx.save(); // Save again so the wing rotation doesn't affect other parts
+  ctx.translate(-2, -2); // Wing attaches near the middle-top of the body
+  ctx.rotate(wingAngle * Math.PI / 180);
+
+  // Outer wing (deep pink, larger)
+  ctx.fillStyle = '#FF1493';
+  ctx.beginPath();
+  ctx.moveTo(0, 0);                    // Wing base (attached to body)
+  ctx.quadraticCurveTo(-28, -14, -20, -30); // Curve out and up
+  ctx.quadraticCurveTo(-8, -22, 0, -4);     // Curve back to body
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner wing feather detail (lighter pink highlight)
+  ctx.fillStyle = '#FF69B4';
+  ctx.beginPath();
+  ctx.moveTo(0, -2);
+  ctx.quadraticCurveTo(-18, -12, -14, -22);
+  ctx.quadraticCurveTo(-6, -16, 0, -6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Wing feather tips (little lines for feather detail)
+  ctx.strokeStyle = '#C71585'; // Medium violet red
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-18, -24);
+  ctx.lineTo(-22, -30);
+  ctx.moveTo(-14, -22);
+  ctx.lineTo(-17, -28);
+  ctx.moveTo(-10, -18);
+  ctx.lineTo(-12, -24);
+  ctx.stroke();
+
+  ctx.restore(); // Undo wing rotation
+
+  // -- TAIL -- (small feathers at the back)
+  ctx.fillStyle = '#FF1493';
+  ctx.beginPath();
+  ctx.moveTo(-bird.width / 2 + 2, 0);
+  ctx.lineTo(-bird.width / 2 - 10, -6);
+  ctx.lineTo(-bird.width / 2 - 4, 0);
+  ctx.lineTo(-bird.width / 2 - 10, 6);
+  ctx.closePath();
+  ctx.fill();
+
+  // -- NECK -- (flamingos have long curvy necks!)
+  ctx.strokeStyle = '#FF69B4';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(14, -6);
+  // S-curve going up and forward for that classic flamingo neck shape
+  ctx.bezierCurveTo(20, -16, 24, -24, 20, -32);
+  ctx.stroke();
+  // Thinner highlight on the neck for depth
+  ctx.strokeStyle = '#FF8DC7';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(14, -8);
+  ctx.bezierCurveTo(19, -16, 22, -24, 19, -30);
+  ctx.stroke();
+
+  // -- HEAD -- (small circle at the top of the neck)
+  ctx.fillStyle = '#FF69B4';
+  ctx.beginPath();
+  ctx.arc(20, -32, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // -- EYE -- (a little white circle with a black pupil)
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(23, -34, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'black';
+  ctx.beginPath();
+  ctx.arc(24, -34, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  // Tiny white shine dot on the eye
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(24.5, -35, 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // -- BEAK -- (the distinctive flamingo beak, curved and dark-tipped)
+  ctx.fillStyle = '#FFA500'; // Orange base
+  ctx.beginPath();
+  ctx.moveTo(25, -32);
+  ctx.lineTo(36, -30);
+  ctx.lineTo(25, -28);
+  ctx.closePath();
+  ctx.fill();
+  // Dark tip of the beak (flamingos have black-tipped beaks)
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.moveTo(31, -31);
+  ctx.lineTo(36, -30);
+  ctx.lineTo(31, -29);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore(); // Restore the drawing state (undo the translate/rotate)
+}
+
+// Draw a single pipe pair (top and bottom)
+// Gold pipes use a gold/yellow gradient instead of green
+function drawPipe(pipe) {
+  // Pick colors based on whether this is a gold pipe or a normal green one
+  let darkColor = pipe.gold ? '#B8860B' : '#2E7D32';
+  let midColor  = pipe.gold ? '#FFD700' : '#4CAF50';
+  let capDark   = pipe.gold ? '#8B6914' : '#1B5E20';
+  let capLight  = pipe.gold ? '#FFEC8B' : '#66BB6A';
+  let flowerCol = pipe.gold ? '#FFF' : '#FF69B4';
+  let flCenterCol = pipe.gold ? '#FF6347' : '#FFD700';
+
+  // -- TOP PIPE -- (hangs from the top of the screen)
+  let topGradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
+  topGradient.addColorStop(0, darkColor);
+  topGradient.addColorStop(0.5, midColor);
+  topGradient.addColorStop(1, darkColor);
+  ctx.fillStyle = topGradient;
+  ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.gapTop);
+
+  // Decorative cap
+  ctx.fillStyle = capDark;
+  ctx.fillRect(pipe.x - 5, pipe.gapTop - 20, PIPE_WIDTH + 10, 20);
+  ctx.fillStyle = capLight;
+  ctx.fillRect(pipe.x - 5, pipe.gapTop - 20, PIPE_WIDTH + 10, 4);
+
+  // Little flowers on the top pipe cap
+  ctx.fillStyle = flowerCol;
+  ctx.beginPath();
+  ctx.arc(pipe.x + 10, pipe.gapTop - 10, 5, 0, Math.PI * 2);
+  ctx.arc(pipe.x + PIPE_WIDTH - 10, pipe.gapTop - 10, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = flCenterCol;
+  ctx.beginPath();
+  ctx.arc(pipe.x + 10, pipe.gapTop - 10, 2, 0, Math.PI * 2);
+  ctx.arc(pipe.x + PIPE_WIDTH - 10, pipe.gapTop - 10, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // -- BOTTOM PIPE -- (rises from the ground)
+  let bottomGradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
+  bottomGradient.addColorStop(0, darkColor);
+  bottomGradient.addColorStop(0.5, midColor);
+  bottomGradient.addColorStop(1, darkColor);
+  ctx.fillStyle = bottomGradient;
+  ctx.fillRect(pipe.x, pipe.gapBottom, PIPE_WIDTH, canvas.height - pipe.gapBottom);
+
+  // Decorative cap on bottom pipe
+  ctx.fillStyle = capDark;
+  ctx.fillRect(pipe.x - 5, pipe.gapBottom, PIPE_WIDTH + 10, 20);
+  ctx.fillStyle = capLight;
+  ctx.fillRect(pipe.x - 5, pipe.gapBottom, PIPE_WIDTH + 10, 4);
+
+  // Little flowers on the bottom pipe cap
+  ctx.fillStyle = flowerCol;
+  ctx.beginPath();
+  ctx.arc(pipe.x + 10, pipe.gapBottom + 10, 5, 0, Math.PI * 2);
+  ctx.arc(pipe.x + PIPE_WIDTH - 10, pipe.gapBottom + 10, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = flCenterCol;
+  ctx.beginPath();
+  ctx.arc(pipe.x + 10, pipe.gapBottom + 10, 2, 0, Math.PI * 2);
+  ctx.arc(pipe.x + PIPE_WIDTH - 10, pipe.gapBottom + 10, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // If gold pipe, draw a small sparkle/glow so the player notices it
+  if (pipe.gold) {
+    let sparkle = 0.3 + Math.sin(frameCount * 0.15) * 0.2;
+    ctx.fillStyle = 'rgba(255, 215, 0, ' + sparkle + ')';
+    ctx.fillRect(pipe.x - 3, pipe.gapTop, PIPE_WIDTH + 6, pipe.gapBottom - pipe.gapTop);
+  }
+}
+
+// Draw the flight timer, pipe score, combo, and best time at the top of the screen
+function drawScore() {
+  let cx = canvas.width / 2;
+
+  // Flight time (big, centered)
+  let displayText = flightTime.toFixed(1) + 's';
+  ctx.fillStyle = 'white';
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 4;
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.strokeText(displayText, cx, 60);
+  ctx.fillText(displayText, cx, 60);
+
+  // Pipe score (smaller, below the time)
+  ctx.font = 'bold 24px Arial';
+  ctx.lineWidth = 3;
+  let scoreText = pipeScore + ' pipes';
+  ctx.strokeText(scoreText, cx, 90);
+  ctx.fillText(scoreText, cx, 90);
+
+  // Combo display — shows when combo streak is 3 or higher
+  if (comboDisplay >= 3) {
+    ctx.font = 'bold 20px Arial';
+    ctx.fillStyle = '#00FFFF';
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    let comboText = 'COMBO x' + comboDisplay;
+    ctx.strokeText(comboText, cx, 115);
+    ctx.fillText(comboText, cx, 115);
+  }
+
+  // Best time indicator — shows during gameplay when there's a previous best
+  if (bestTime > 0 && gameState === 'playing') {
+    ctx.font = '16px Arial';
+    ctx.lineWidth = 2;
+    if (flightTime > bestTime) {
+      // Past the best time — pulsing gold "NEW BEST!" text
+      let pulse = 0.6 + Math.sin(frameCount * 0.1) * 0.4;
+      ctx.fillStyle = 'rgba(255, 215, 0, ' + pulse + ')';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.strokeText('NEW BEST!', cx, 135);
+      ctx.fillText('NEW BEST!', cx, 135);
+    } else {
+      // Show how far from best time
+      let remaining = (bestTime - flightTime).toFixed(1);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillText('Best: ' + bestTime.toFixed(1) + 's (-' + remaining + ')', cx, 135);
+    }
+  }
+}
+
+// Draw the start screen
+function drawStartScreen() {
+  // Semi-transparent overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // All positions are relative to the center of the screen
+  let cx = canvas.width / 2;
+  let cy = canvas.height / 2;
+
+  // Title
+  ctx.fillStyle = '#FF69B4';
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 60px Arial';
+  ctx.textAlign = 'center';
+  ctx.strokeText('Flappy', cx, cy - 120);
+  ctx.fillText('Flappy', cx, cy - 120);
+  ctx.strokeText('Flamingo', cx, cy - 55);
+  ctx.fillText('Flamingo', cx, cy - 55);
+
+  // Decorative flamingo emoji as a big icon
+  ctx.font = '100px Arial';
+  ctx.fillText('\u{1F9A9}', cx, cy + 60);
+
+  // Instructions — the main text bounces gently up and down
+  let bounce = Math.sin(frameCount * 0.05) * 8;
+  ctx.fillStyle = 'white';
+  ctx.font = '24px Arial';
+  ctx.fillText('Click or press Space to start!', cx, cy + 130 + bounce);
+
+  ctx.font = '16px Arial';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.fillText('Flap to fly through the gaps — watch out for alligators!', cx, cy + 165);
+}
+
+// Draw the game over screen with the leaderboard
+function drawGameOver() {
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // All positions are relative to the center of the screen
+  let cx = canvas.width / 2;
+  let cy = canvas.height / 2;
+
+  // "Game Over" text
+  ctx.fillStyle = '#FF69B4';
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 56px Arial';
+  ctx.textAlign = 'center';
+  ctx.strokeText('Game Over!', cx, cy - 130);
+  ctx.fillText('Game Over!', cx, cy - 130);
+
+  // Show flight time and pipe score
+  ctx.fillStyle = 'white';
+  ctx.font = '34px Arial';
+  ctx.fillText('Time: ' + flightTime.toFixed(1) + 's  |  Pipes: ' + pipeScore, cx, cy - 75);
+
+  // Show best time
+  ctx.font = '24px Arial';
+  ctx.fillStyle = '#FFD700'; // Gold color for best time
+  ctx.fillText('Best: ' + bestTime.toFixed(1) + 's', cx, cy - 42);
+
+  // NEW BEST celebration — pulses if this run set a new record
+  if (isNewBest) {
+    let pulse = 1 + Math.sin(frameCount * 0.15) * 0.15; // Scale pulses between 0.85 and 1.15
+    ctx.save();
+    ctx.translate(cx, cy - 10);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = '#FFD700';
+    ctx.strokeStyle = '#FF6347';
+    ctx.lineWidth = 2;
+    ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'center';
+    ctx.strokeText('NEW BEST!', 0, 0);
+    ctx.fillText('NEW BEST!', 0, 0);
+    ctx.restore();
+    ctx.textAlign = 'center'; // Reset after the save/restore
+  }
+
+  // --- LEADERBOARD ---
+  // Push everything down when NEW BEST is shown so they don't overlap
+  let lbOffset = isNewBest ? 30 : 0;
+  let board = loadLeaderboard();
+
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 28px Arial';
+  ctx.fillText('Leaderboard', cx, cy + 5 + lbOffset);
+
+  // Draw a subtle line under the title
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 100, cy + 15 + lbOffset);
+  ctx.lineTo(cx + 100, cy + 15 + lbOffset);
+  ctx.stroke();
+
+  if (board.length === 0) {
+    // No entries yet
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = '20px Arial';
+    ctx.fillText('No entries yet!', cx, cy + 50 + lbOffset);
+  } else {
+    // Show up to 5 leaderboard entries
+    ctx.font = '22px Arial';
+    for (let i = 0; i < board.length; i++) {
+      let entry = board[i];
+      let entryY = cy + 45 + i * 32 + lbOffset;
+
+      // Highlight the top entry in gold
+      if (i === 0) {
+        ctx.fillStyle = '#FFD700';
+      } else {
+        ctx.fillStyle = 'white';
+      }
+
+      // Rank, name, and time — left-aligned name, right-aligned time
+      let rank = (i + 1) + '.';
+      ctx.textAlign = 'left';
+      ctx.fillText(rank, cx - 120, entryY);
+      ctx.fillText(entry.name, cx - 90, entryY);
+      ctx.textAlign = 'right';
+      ctx.fillText(entry.time.toFixed(1) + 's', cx + 130, entryY);
+    }
+  }
+
+  // Restart instruction
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'white';
+  ctx.font = '22px Arial';
+  let restartY = cy + 45 + Math.max(board.length, 1) * 32 + 25 + lbOffset;
+  ctx.fillText('Click or press Space to retry', cx, restartY);
+}
+
+// ============================================================
+// MOTION TRAIL - Faded afterimages of the flamingo
+// ============================================================
+
+// Draw the motion trail — pink ghost silhouettes behind the bird
+function drawMotionTrail() {
+  for (let i = 0; i < birdTrail.length; i++) {
+    let t = birdTrail[i];
+    // Each afterimage is fainter than the next — most recent is most visible
+    let alpha = (i + 1) / (birdTrail.length + 1) * 0.3;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(t.x + bird.width / 2, t.y + bird.height / 2);
+    ctx.rotate((t.rot || 0) * Math.PI / 180);
+    // Draw a simplified pink ellipse (no need for the full flamingo detail)
+    ctx.fillStyle = '#FF69B4';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bird.width / 2, bird.height / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+// ============================================================
+// SCREEN FLASH - Brief color overlay on events
+// ============================================================
+
+// Draw a full-screen color overlay (white on score, red on death, gold on milestone)
+function drawScreenFlash() {
+  if (flashTimer > 0 && flashColor) {
+    ctx.fillStyle = flashColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// ============================================================
+// MILESTONE BANNER - Celebratory text that slides in and fades
+// ============================================================
+
+// Draw a big banner when the player hits a milestone pipe count
+function drawMilestoneBanner() {
+  if (milestoneTimer <= 0) return;
+
+  // Slide in from top quickly, then hang and fade out
+  let progress = 1 - milestoneTimer / 120;
+  let alpha = milestoneTimer > 20 ? 1 : milestoneTimer / 20;
+  let slideY = progress < 0.1 ? (progress / 0.1) * 80 : 80;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+
+  // Dark background bar for readability
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, slideY - 30, canvas.width, 60);
+
+  // Gold text
+  ctx.fillStyle = '#FFD700';
+  ctx.strokeStyle = '#8B6914';
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 36px Arial';
+  ctx.strokeText(milestoneText, canvas.width / 2, slideY + 10);
+  ctx.fillText(milestoneText, canvas.width / 2, slideY + 10);
+
+  ctx.restore();
+}
+
+// ============================================================
+// CRT EFFECT - Scanlines and vignette for retro feel
+// ============================================================
+
+// Draw scanlines across the whole screen and a dark vignette around the edges
+function drawCRT() {
+  // Scanlines — thin semi-transparent dark lines every 4 pixels
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
+  for (let y = 0; y < canvas.height; y += 4) {
+    ctx.fillRect(0, y, canvas.width, 2);
+  }
+
+  // Vignette — gradual darkening from center to edges
+  let vignette = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, canvas.height * 0.3,
+    canvas.width / 2, canvas.height / 2, canvas.height * 0.9
+  );
+  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vignette.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ============================================================
+// GAME LOOP - Runs every frame (~60 times per second)
+// ============================================================
+
+function gameLoop() {
+  frameCount++;
+
+  // --- SCREEN SHAKE ---
+  // If shakeTimer > 0, offset the entire canvas randomly for impact feel
+  ctx.save();
+  if (shakeTimer > 0) {
+    let sx = (Math.random() - 0.5) * shakeIntensity;
+    let sy = (Math.random() - 0.5) * shakeIntensity;
+    ctx.translate(sx, sy);
+    shakeTimer--;
+    // Reduce intensity over time so the shake fades out
+    shakeIntensity *= 0.9;
+  }
+
+  // --- DRAW THE SCENE ---
+  drawBackground();
+
+  // Move and draw clouds (they drift slowly no matter what state we're in)
+  for (let cloud of clouds) {
+    cloud.x -= cloud.speed;
+    // If a cloud drifts off the left side, wrap it around to the right
+    if (cloud.x + cloud.size < 0) {
+      cloud.x = canvas.width + cloud.size;
+      cloud.y = Math.random() * (canvas.height / 2);
+    }
+  }
+  drawClouds();
+
+  // --- GAME STATE LOGIC ---
+  if (gameState === 'playing') {
+    // UPDATE THE FLIGHT TIMER: calculate how many seconds since the game started
+    flightTime = (Date.now() - startTime) / 1000;
+
+    // SPEED RAMP: Gradually increase speed and gravity as time goes on.
+    // This keeps the first few seconds accessible but makes long runs intense.
+    PIPE_SPEED = BASE_PIPE_SPEED + flightTime * SPEED_RAMP_RATE;
+    GRAVITY = BASE_GRAVITY + flightTime * GRAVITY_RAMP_RATE;
+
+    // PHYSICS: Apply gravity to the flamingo
+    bird.velocity += GRAVITY;
+    bird.y += bird.velocity;
+
+    // Scroll the ground left for motion feel
+    groundOffset += PIPE_SPEED;
+
+    // Record bird position for motion trail (afterimage effect)
+    birdTrail.push({ x: bird.x, y: bird.y, rot: bird.rotation });
+    if (birdTrail.length > 5) birdTrail.shift(); // Keep only the last 5 positions
+
+    // PIPES: Create new pipes at regular intervals
+    if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - PIPE_SPACING) {
+      createPipe();
+    }
+
+    // Move each pipe to the left and check for scoring
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      pipes[i].x -= PIPE_SPEED;
+
+      // BOBBING: Make bobbing pipes oscillate up and down smoothly
+      if (pipes[i].bobbing) {
+        let bob = Math.sin(frameCount * 0.03 + pipes[i].bobOffset) * 20;
+        let prevBob = Math.sin((frameCount - 1) * 0.03 + pipes[i].bobOffset) * 20;
+        let delta = bob - prevBob;
+        pipes[i].gapTop += delta;
+        pipes[i].gapBottom += delta;
+      }
+
+      // NEAR-MISS DETECTION: Check if bird is inside the pipe gap and very close to edges
+      if (!pipes[i].nearMissChecked &&
+          bird.x + bird.width > pipes[i].x && bird.x < pipes[i].x + PIPE_WIDTH) {
+        let topDist = bird.y - pipes[i].gapTop;
+        let bottomDist = pipes[i].gapBottom - (bird.y + bird.height);
+        if ((topDist > 0 && topDist < NEAR_MISS_THRESHOLD) ||
+            (bottomDist > 0 && bottomDist < NEAR_MISS_THRESHOLD)) {
+          pipes[i].nearMissChecked = true;
+          playNearMissSound();
+          combo++;
+          comboDisplay = combo;
+          spawnPopup(bird.x + 40, bird.y - 30, 'CLOSE!', '#00FFFF');
+          spawnParticles(bird.x + bird.width / 2, bird.y + bird.height / 2, 5, '#00FFFF', 1.5);
+        }
+      }
+
+      // PIPE SCORING: If the bird has fully passed a pipe, count it
+      if (!pipes[i].scored && pipes[i].x + PIPE_WIDTH < bird.x) {
+        pipes[i].scored = true;
+        combo++;
+        comboDisplay = combo;
+        // Gold pipes are worth double!
+        let points = pipes[i].gold ? 2 : 1;
+        pipeScore += points;
+        playScoreSound();
+        // Show combo info in the popup
+        let popupText = '+' + points;
+        if (pipes[i].gold) popupText += ' GOLD!';
+        if (combo >= 5) popupText += ' x' + combo;
+        spawnPopup(bird.x + 30, bird.y - 20, popupText, pipes[i].gold ? '#FFD700' : '#FFFFFF');
+        // White flash on score
+        flashColor = 'rgba(255, 255, 255, 0.15)';
+        flashTimer = 5;
+        // Check for milestones (10, 25, 50, 75, 100 pipes)
+        for (let m = 0; m < MILESTONES.length; m++) {
+          if (pipeScore >= MILESTONES[m] && lastMilestone < MILESTONES[m]) {
+            lastMilestone = MILESTONES[m];
+            milestoneText = MILESTONES[m] + ' PIPES!';
+            milestoneTimer = 120; // Show banner for 2 seconds
+            playMilestoneSound();
+            spawnParticles(canvas.width / 2, canvas.height / 2, 30, '#FFD700', 4);
+            flashColor = 'rgba(255, 215, 0, 0.2)';
+            flashTimer = 15;
+            break;
+          }
+        }
+      }
+
+      // Remove pipes that have scrolled off the left edge (cleanup)
+      if (pipes[i].x + PIPE_WIDTH < -10) {
+        pipes.splice(i, 1);
+      }
+    }
+
+    // COLLECTIBLES: Move shrimp with the pipes and check for collection
+    for (let i = collectibles.length - 1; i >= 0; i--) {
+      collectibles[i].x -= PIPE_SPEED;
+
+      // Check if the flamingo grabbed the shrimp
+      if (!collectibles[i].collected && checkShrimpCollision(collectibles[i])) {
+        collectibles[i].collected = true;
+        pipeScore += 2; // Shrimp are worth 2 bonus points!
+        playShrimpSound();
+        spawnPopup(collectibles[i].x, collectibles[i].y - 20, '+2 Shrimp!', '#FF6347');
+        // Burst of orange particles for a satisfying collect effect
+        spawnParticles(collectibles[i].x, collectibles[i].y, 8, '#FF6347', 2);
+      }
+
+      // Remove shrimp that have scrolled off screen or been collected
+      if (collectibles[i].x < -30 || collectibles[i].collected) {
+        collectibles.splice(i, 1);
+      }
+    }
+
+    // ALLIGATORS: Spawn new alligators on a timer
+    gatorTimer--;
+    if (gatorTimer <= 0) {
+      createAlligator();
+      resetGatorTimer();
+    }
+
+    // Move alligators to the left (same speed as pipes) and animate jaws
+    for (let i = alligators.length - 1; i >= 0; i--) {
+      alligators[i].x -= PIPE_SPEED;
+
+      // Animate the jaw opening and closing
+      if (alligators[i].jawOpening) {
+        alligators[i].jawAngle += 0.03;
+        if (alligators[i].jawAngle >= 1) {
+          alligators[i].jawOpening = false;
+        }
+      } else {
+        alligators[i].jawAngle -= 0.03;
+        if (alligators[i].jawAngle <= 0) {
+          alligators[i].jawOpening = true;
+        }
+      }
+
+      // Remove alligators that have scrolled off the left edge
+      if (alligators[i].x + GATOR_WIDTH + 30 < -10) {
+        alligators.splice(i, 1);
+      }
+    }
+
+    // COLLISION: Check if the flamingo hit anything
+    if (checkCollision()) {
+      // Check if this is a new best time
+      if (flightTime > bestTime) {
+        bestTime = flightTime;
+        isNewBest = true;
+      } else {
+        isNewBest = false;
+      }
+      // Start the death animation instead of going straight to name entry
+      gameState = 'dying';
+      deathTimer = 90; // About 1.5 seconds at 60fps
+      playDeathSound();
+      // Screen shake for impact!
+      shakeTimer = 15;
+      shakeIntensity = 12;
+      // Big burst of feather particles
+      spawnParticles(bird.x + bird.width / 2, bird.y + bird.height / 2, 20, '#FF69B4', 3);
+      spawnParticles(bird.x + bird.width / 2, bird.y + bird.height / 2, 10, '#FFB6C1', 2);
+      // Red flash on death
+      flashColor = 'rgba(255, 0, 0, 0.3)';
+      flashTimer = 20;
+      combo = 0; // Reset combo streak
+    }
+  }
+
+  // DYING STATE: The bird tumbles and falls for a moment before name entry
+  if (gameState === 'dying') {
+    // Bird keeps falling with gravity and spins
+    bird.velocity += GRAVITY;
+    bird.y += bird.velocity;
+    bird.rotation += 5; // Spin!
+    deathTimer--;
+
+    // After the timer runs out, show the name entry
+    if (deathTimer <= 0) {
+      gameState = 'entername';
+      showNameEntry();
+    }
+  }
+
+  // Always update particles and popups (they can exist across states)
+  updateParticles();
+  updatePopups();
+
+  // Decay screen flash
+  if (flashTimer > 0) flashTimer--;
+
+  // --- DRAW GAME OBJECTS ---
+  // Draw pipes
+  for (let pipe of pipes) {
+    drawPipe(pipe);
+  }
+
+  // Draw shrimp collectibles (on top of pipes so they're visible in the gaps)
+  for (let shrimp of collectibles) {
+    drawShrimp(shrimp);
+  }
+
+  // Draw ground (on top of pipes so it looks right)
+  drawGround();
+
+  // Draw alligators (on top of ground so they look like they're standing on it)
+  for (let gator of alligators) {
+    drawAlligator(gator);
+  }
+
+  // Draw motion trail (afterimages behind the bird)
+  if (gameState === 'playing') drawMotionTrail();
+
+  // Draw the flamingo
+  drawBird();
+
+  // Draw particles on top of everything for visibility
+  drawParticles();
+
+  // Draw score popups (floating +1 text)
+  drawPopups();
+
+  // Draw the flight timer during gameplay and dying
+  if (gameState === 'playing' || gameState === 'dying') {
+    drawScore();
+  }
+
+  // Screen flash overlay (white on score, red on death, gold on milestone)
+  drawScreenFlash();
+
+  // Milestone banner ("50 PIPES!" etc.)
+  drawMilestoneBanner();
+
+  // Draw overlay screens
+  if (gameState === 'start') {
+    drawStartScreen();
+  } else if (gameState === 'entername') {
+    drawScore();
+  } else if (gameState === 'gameover') {
+    drawScore();
+    drawGameOver();
+  }
+
+  // CRT scanline overlay (drawn last for authentic retro feel)
+  drawCRT();
+
+  // Undo the screen shake translate
+  ctx.restore();
+
+  // Request the next frame — this creates the animation loop
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// START THE GAME - Kick off the loop!
+// ============================================================
+
+// Initialize the alligator timer so the first one doesn't spawn instantly
+resetGatorTimer();
+
+gameLoop();
+</script>
+
+</body>
+</html>
