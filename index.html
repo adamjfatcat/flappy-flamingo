@@ -136,8 +136,8 @@ let PIPE_SPEED = IS_MOBILE ? 1.8 : 2.2;        // Slower pipes on mobile
 // Base values — the starting speed before the ramp kicks in
 const BASE_GRAVITY = IS_MOBILE ? 0.18 : 0.22;
 const BASE_PIPE_SPEED = IS_MOBILE ? 1.8 : 2.2;
-const SPEED_RAMP_RATE = IS_MOBILE ? 0.01 : 0.015;     // Slower difficulty ramp on mobile
-const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.0005 : 0.0008;
+const SPEED_RAMP_RATE = IS_MOBILE ? 0.02 : 0.015;     // Faster ramp on mobile to build challenge
+const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.001 : 0.0008;
 
 const FLAP_STRENGTH = IS_MOBILE ? -4.5 : -5;   // Slightly gentler flap on mobile
 const PIPE_WIDTH = IS_MOBILE ? 55 : 70;         // Thinner pipes on mobile
