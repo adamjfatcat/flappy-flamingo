@@ -1213,50 +1213,53 @@ function drawPipe(pipe) {
 function drawScore() {
   let cx = canvas.width / 2;
 
+  // On mobile, push the score down to avoid the status bar / notch area
+  let topOffset = IS_MOBILE ? 40 : 0;
+
   // Flight time (big, centered)
   let displayText = flightTime.toFixed(1) + 's';
   ctx.fillStyle = 'white';
   ctx.strokeStyle = '#333';
   ctx.lineWidth = 4;
-  ctx.font = 'bold 48px Arial';
+  ctx.font = IS_MOBILE ? 'bold 36px Arial' : 'bold 48px Arial';
   ctx.textAlign = 'center';
-  ctx.strokeText(displayText, cx, 60);
-  ctx.fillText(displayText, cx, 60);
+  ctx.strokeText(displayText, cx, 60 + topOffset);
+  ctx.fillText(displayText, cx, 60 + topOffset);
 
   // Pipe score (smaller, below the time)
-  ctx.font = 'bold 24px Arial';
+  ctx.font = IS_MOBILE ? 'bold 18px Arial' : 'bold 24px Arial';
   ctx.lineWidth = 3;
   let scoreText = pipeScore + ' pipes';
-  ctx.strokeText(scoreText, cx, 90);
-  ctx.fillText(scoreText, cx, 90);
+  ctx.strokeText(scoreText, cx, 90 + topOffset);
+  ctx.fillText(scoreText, cx, 90 + topOffset);
 
   // Combo display — shows when combo streak is 3 or higher
   if (comboDisplay >= 3) {
-    ctx.font = 'bold 20px Arial';
+    ctx.font = IS_MOBILE ? 'bold 16px Arial' : 'bold 20px Arial';
     ctx.fillStyle = '#00FFFF';
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 2;
     let comboText = 'COMBO x' + comboDisplay;
-    ctx.strokeText(comboText, cx, 115);
-    ctx.fillText(comboText, cx, 115);
+    ctx.strokeText(comboText, cx, 115 + topOffset);
+    ctx.fillText(comboText, cx, 115 + topOffset);
   }
 
   // Best time indicator — shows during gameplay when there's a previous best
   if (bestTime > 0 && gameState === 'playing') {
-    ctx.font = '16px Arial';
+    ctx.font = IS_MOBILE ? '14px Arial' : '16px Arial';
     ctx.lineWidth = 2;
     if (flightTime > bestTime) {
       // Past the best time — pulsing gold "NEW BEST!" text
       let pulse = 0.6 + Math.sin(frameCount * 0.1) * 0.4;
       ctx.fillStyle = 'rgba(255, 215, 0, ' + pulse + ')';
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.strokeText('NEW BEST!', cx, 135);
-      ctx.fillText('NEW BEST!', cx, 135);
+      ctx.strokeText('NEW BEST!', cx, 135 + topOffset);
+      ctx.fillText('NEW BEST!', cx, 135 + topOffset);
     } else {
       // Show how far from best time
       let remaining = (bestTime - flightTime).toFixed(1);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.fillText('Best: ' + bestTime.toFixed(1) + 's (-' + remaining + ')', cx, 135);
+      ctx.fillText('Best: ' + bestTime.toFixed(1) + 's (-' + remaining + ')', cx, 135 + topOffset);
     }
   }
 }
