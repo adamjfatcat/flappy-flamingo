@@ -125,20 +125,24 @@ window.addEventListener('resize', resizeCanvas);
 // GAME SETTINGS - Easy to tweak these numbers to change difficulty
 // ============================================================
 
+// Mobile detection: screens narrower than 768px get easier settings
+// so the game is playable on small screens
+const IS_MOBILE = window.innerWidth < 768;
+
 // These two use "let" because they increase over time (speed ramp)
-let GRAVITY = 0.22;         // How fast the flamingo falls (lower = floatier, easier)
-let PIPE_SPEED = 2.2;       // How fast pipes move left (lower = easier)
+let GRAVITY = IS_MOBILE ? 0.18 : 0.22;         // Floatier on mobile
+let PIPE_SPEED = IS_MOBILE ? 1.8 : 2.2;        // Slower pipes on mobile
 
 // Base values — the starting speed before the ramp kicks in
-const BASE_GRAVITY = 0.22;
-const BASE_PIPE_SPEED = 2.2;
-const SPEED_RAMP_RATE = 0.015;    // How much PIPE_SPEED increases per second survived
-const GRAVITY_RAMP_RATE = 0.0008; // How much GRAVITY increases per second survived
+const BASE_GRAVITY = IS_MOBILE ? 0.18 : 0.22;
+const BASE_PIPE_SPEED = IS_MOBILE ? 1.8 : 2.2;
+const SPEED_RAMP_RATE = IS_MOBILE ? 0.01 : 0.015;     // Slower difficulty ramp on mobile
+const GRAVITY_RAMP_RATE = IS_MOBILE ? 0.0005 : 0.0008;
 
-const FLAP_STRENGTH = -5;   // How high a flap goes (negative = upward)
-const PIPE_WIDTH = 70;      // How wide each pipe/obstacle is
-const PIPE_GAP = 190;       // The vertical gap between top and bottom pipes (bigger = easier)
-const PIPE_SPACING = 250;   // Horizontal distance between pipe pairs (bigger = more time)
+const FLAP_STRENGTH = IS_MOBILE ? -4.5 : -5;   // Slightly gentler flap on mobile
+const PIPE_WIDTH = IS_MOBILE ? 55 : 70;         // Thinner pipes on mobile
+const PIPE_GAP = IS_MOBILE ? 220 : 190;         // Bigger gap on mobile (easier to fly through)
+const PIPE_SPACING = IS_MOBILE ? 300 : 250;     // More space between pipes on mobile
 
 // Alligator settings
 const GATOR_WIDTH = 80;     // How wide each alligator is
@@ -532,8 +536,8 @@ function handleInput() {
     // Reset speed to base values (speed ramp starts from zero each game)
     PIPE_SPEED = BASE_PIPE_SPEED;
     GRAVITY = BASE_GRAVITY;
-    // Spawn the first pipe just a short distance ahead so the action starts fast
-    createPipe(canvas.width * 0.3);
+    // Spawn the first pipe ahead — further on mobile so you have time to react
+    createPipe(IS_MOBILE ? canvas.width * 0.6 : canvas.width * 0.3);
     flap();
   } else if (gameState === 'playing') {
     // During gameplay, input makes the flamingo flap upward
